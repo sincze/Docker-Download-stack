@@ -1,0 +1,172 @@
+version: "3"
+services:
+  gluetun:
+    image: qmcgaw/gluetun
+    container_name: gluetun
+    # line above must be uncommented to allow external containers to connect.
+    # See https://github.com/qdm12/gluetun-wiki/blob/main/setup/connect-a-container-to-gluetun.md#external-container-to-gluetun
+    security_opt:
+      - no-new-privileges:true
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - 6881:6881
+      - 6881:6881/udp
+#      - 8005:8000 #gluetun
+#      - 8085:8085 # qbittorrent
+#      - 9117:9117 # Jackett
+#      - 8989:8989 # Sonarr
+      - 9696:9696 # Prowlarr
+#      - 8112:8112 # Deluge
+    volumes:
+      - ./arr-stack:/gluetun
+    environment:
+      # See https://github.com/qdm12/gluetun-wiki/tree/main/setup#setup
+      - VPN_SERVICE_PROVIDER=nordvpn
+      - VPN_TYPE=wireguard
+      # OpenVPN:
+      # - OPENVPN_USER=
+      # - OPENVPN_PASSWORD=
+      # Wireguard:
+      - WIREGUARD_PRIVATE_KEY=${KEY} # See https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/nordvpn.md#obtain-your-wireguard-private-key
+      - WIREGUARD_ADDRESSES=10.5.0.2/32
+      # Timezone for accurate log times
+      - TZ=${TIMEZONE}
+      # Server list updater
+      # See https://github.com/qdm12/gluetun-wiki/blob/main/setup/servers.md#update-the-vpn-servers-list
+      - UPDATER_PERIOD=24h
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+
+      # Gluetun Built-in HTTP control server
+      - "traefik.http.routers.gluetun.entrypoints=http"
+      - "traefik.http.routers.gluetun.rule=Host(`gluetun.mydomain.com`)"
+      - "traefik.http.routers.gluetun.service=gluetun"
+      - "traefik.http.middlewares.gluetun-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.gluetun.middlewares=gluetun-https-redirect"
+      - "traefik.http.routers.gluetun-secure.entrypoints=https"
+      - "traefik.http.routers.gluetun-secure.rule=Host(`gluetun.mydomain.com`)"
+      - "traefik.http.routers.gluetun-secure.tls=true"
+      - "traefik.http.routers.gluetun-secure.service=gluetun"
+      - "traefik.http.services.gluetun.loadbalancer.passHostHeader=true"
+      - "traefik.http.services.gluetun.loadbalancer.server.port=8000"
+      # Applications
+      # Deluge
+      - "traefik.http.routers.deluge.entrypoints=http"
+      - "traefik.http.routers.deluge.rule=Host(`deluge.mydomain.com`)"
+      - "traefik.http.routers.deluge.service=deluge"
+      - "traefik.http.middlewares.deluge-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.deluge.middlewares=deluge-https-redirect"
+      - "traefik.http.routers.deluge-secure.entrypoints=https"
+      - "traefik.http.routers.deluge-secure.rule=Host(`deluge.mydomain.com`)"
+      - "traefik.http.routers.deluge-secure.tls=true"
+      - "traefik.http.routers.deluge-secure.service=deluge"
+      - "traefik.http.services.deluge.loadbalancer.passHostHeader=true"
+      - "traefik.http.services.deluge.loadbalancer.server.port=8112"
+      # QBITTORRENT (16 hostname changes)
+      - "traefik.http.routers.qbittorrent.entrypoints=http"
+      - "traefik.http.routers.qbittorrent.rule=Host(`qbittorrent.mydomain.com`)"
+      - "traefik.http.routers.qbittorrent.service=qbittorrent"
+      - "traefik.http.middlewares.qbittorrent-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.qbittorrent.middlewares=qbittorrent-https-redirect"
+      - "traefik.http.routers.qbittorrent-secure.entrypoints=https"
+      - "traefik.http.routers.qbittorrent-secure.rule=Host(`qbittorrent.mydomain.com`)"
+      - "traefik.http.routers.qbittorrent-secure.tls=true"
+      - "traefik.http.routers.qbittorrent-secure.service=qbittorrent"
+      - "traefik.http.services.qbittorrent.loadbalancer.passHostHeader=true"
+      - "traefik.http.services.qbittorrent.loadbalancer.server.port=8085"
+      # Jackett (16 hostname changes) + 1 PORT!
+      - "traefik.http.routers.jackett.entrypoints=http"
+      - "traefik.http.routers.jackett.rule=Host(`jackett.mydomain.com`)"
+      - "traefik.http.routers.jackett.service=jackett"
+      - "traefik.http.middlewares.jackett-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.jackett.middlewares=jackett-https-redirect"
+      - "traefik.http.routers.jackett-secure.entrypoints=https"
+      - "traefik.http.routers.jackett-secure.rule=Host(`jackett.mydomain.com`)"
+      - "traefik.http.routers.jackett-secure.tls=true"
+      - "traefik.http.routers.jackett-secure.service=jackett"
+      - "traefik.http.services.jackett.loadbalancer.passHostHeader=true"
+      - "traefik.http.services.jackett.loadbalancer.server.port=9117"
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent
+    container_name: qbittorrent
+    network_mode: "service:gluetun"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TIMEZONE}
+      - WEBUI_PORT=8085
+    volumes:
+      - ./arr-stack/qbittorrent:/config
+      - ./arr-stack/qbittorrent/downloads:/downloads
+    depends_on:
+      - gluetun
+    restart: always
+
+  deluge:
+    image: ghcr.io/linuxserver/deluge
+    container_name: deluge
+    network_mode: "service:gluetun"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TIMEZONE}
+      - UMASK=022
+    volumes:
+      - ./arr-stack/deluge:/config
+      - ./arr-stack/deluge/downloads:/downloads
+    depends_on:
+      - gluetun
+    restart: always
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: jackett
+    network_mode: "service:gluetun"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TIMEZONE}
+      - AUTO_UPDATE=true #optional
+      - RUN_OPTS= #optional
+    volumes:
+      - ./arr-stack/jackett/data:/config
+      - ./arr-stack/jackett/blackhole:/downloads
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    network_mode: "service:gluetun"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TIMEZONE}
+    volumes:
+      - ./arr-stack/sonarr/data:/config
+      - ./arr-stack/sonarr/tvseries:/tv #optional
+      - ./arr-stack/sonarr/downloadclient-downloads:/downloads #optional
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    network_mode: "service:gluetun"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TIMEZONE}
+    volumes:
+      - ./arr-stack/prowlarr/data:/config
+    restart: unless-stopped
+
+
+networks:
+  proxy:
+    external: true
